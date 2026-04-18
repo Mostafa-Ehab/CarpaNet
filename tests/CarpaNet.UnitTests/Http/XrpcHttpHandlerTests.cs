@@ -135,6 +135,46 @@ public class XrpcUrlBuildingTests
 
         Assert.Equal("https://bsky.social/xrpc/app.bsky.feed.getTimeline?limit=50", capturedUrl);
     }
+
+    [Fact]
+    public async Task GetAsync_ObjectResponse_WithEmptyBody_ReturnsSentinelObject()
+    {
+        var handler = new MockHttpMessageHandler((request, ct) =>
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(string.Empty, Encoding.UTF8, "application/json")
+            });
+        });
+
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://bsky.social") };
+        using var client = CreateClient(httpClient, new Uri("https://bsky.social"));
+
+        var result = await client.GetAsync<object>("com.atproto.repo.deleteRecord");
+
+        Assert.NotNull(result);
+        Assert.IsNotType<JsonElement>(result);
+    }
+
+    [Fact]
+    public async Task GetAsync_ObjectResponse_WithJsonBody_ReturnsJsonElement()
+    {
+        var handler = new MockHttpMessageHandler((request, ct) =>
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"ok\":true}", Encoding.UTF8, "application/json")
+            });
+        });
+
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://bsky.social") };
+        using var client = CreateClient(httpClient, new Uri("https://bsky.social"));
+
+        var result = await client.GetAsync<object>("com.atproto.repo.deleteRecord");
+
+        var json = Assert.IsType<JsonElement>(result);
+        Assert.True(json.GetProperty("ok").GetBoolean());
+    }
 }
 
 public class RateLimitInfoTests
