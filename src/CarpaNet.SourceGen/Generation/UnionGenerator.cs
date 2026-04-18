@@ -15,8 +15,9 @@ public static class UnionGenerator
 {
     /// <summary>
     /// Generates a union interface with JsonPolymorphic attributes.
-    /// For open unions, no polymorphic attributes are emitted since a custom JsonConverter
-    /// in the generated JSON context handles unknown $type values gracefully.
+    /// Closed unions use JsonPolymorphic/JsonDerivedType metadata.
+    /// Open unions use a dedicated JsonConverter to preserve backward-compatible
+    /// unknown/missing discriminator behavior (returning null).
     /// </summary>
     public static void GenerateUnionInterface(
         SourceBuilder sb,
@@ -27,12 +28,10 @@ public static class UnionGenerator
     {
         var refs = def.Refs ?? new List<string>();
         var isClosed = def.Closed == true;
-
         sb.WriteSummary(def.Description);
 
         if (isClosed)
         {
-            // Closed unions: use JsonPolymorphic attributes (all types are known)
             sb.WriteAttribute("System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")");
 
             foreach (var refString in refs)
@@ -42,13 +41,20 @@ public static class UnionGenerator
                 sb.WriteAttribute($"System.Text.Json.Serialization.JsonDerivedType(typeof({typeName}), \"{discriminator}\")");
             }
         }
-
-        // Open unions: no polymorphic attributes - the generated JSON context
-        // provides a custom JsonConverter that handles unknown $type values.
+        else
+        {
+            var converterName = $"{interfaceName}JsonConverter";
+            sb.WriteAttribute($"System.Text.Json.Serialization.JsonConverter(typeof({converterName}))");
+        }
 
         sb.AppendLine($"public interface {interfaceName}");
         sb.OpenBrace();
         sb.CloseBrace();
+
+        if (!isClosed)
+        {
+            GenerateOpenUnionConverter(sb, interfaceName, refs, currentNsid, registry);
+        }
     }
 
     /// <summary>
@@ -64,5 +70,83 @@ public static class UnionGenerator
 
         // Global reference
         return refString;
+    }
+
+    private static void GenerateOpenUnionConverter(
+        SourceBuilder sb,
+        string interfaceName,
+        List<string> refs,
+        string currentNsid,
+        TypeRegistry registry)
+    {
+        var converterName = $"{interfaceName}JsonConverter";
+        sb.AppendLine();
+        sb.AppendLine($"public sealed class {converterName} : global::System.Text.Json.Serialization.JsonConverter<{interfaceName}>");
+        sb.OpenBrace();
+
+        sb.AppendLine($"public override {interfaceName}? Read(ref global::System.Text.Json.Utf8JsonReader reader, global::System.Type typeToConvert, global::System.Text.Json.JsonSerializerOptions options)");
+        sb.OpenBrace();
+        sb.AppendLine("var element = global::System.Text.Json.JsonElement.ParseValue(ref reader);");
+        sb.AppendLine("if (!element.TryGetProperty(\"$type\", out var typeProp))");
+        sb.AppendLine("    return null;");
+        sb.AppendLine("var typeStr = typeProp.GetString();");
+        sb.AppendLine("return typeStr switch");
+        sb.OpenBrace();
+
+        foreach (var refString in refs)
+        {
+            var typeName = registry.ResolveToCSharpType(refString, currentNsid);
+            var discriminator = GetTypeDiscriminator(refString, currentNsid);
+            sb.AppendLine($"\"{discriminator}\" => ({interfaceName}?)global::System.Text.Json.JsonSerializer.Deserialize(element, options.GetTypeInfo(typeof(global::{typeName}))),");
+        }
+
+        sb.AppendLine("_ => null,");
+        sb.CloseBrace(withSemicolon: true);
+        sb.CloseBrace();
+        sb.AppendLine();
+
+        sb.AppendLine($"public override void Write(global::System.Text.Json.Utf8JsonWriter writer, {interfaceName} value, global::System.Text.Json.JsonSerializerOptions options)");
+        sb.OpenBrace();
+        sb.AppendLine("if (value is null)");
+        sb.OpenBrace();
+        sb.AppendLine("writer.WriteNullValue();");
+        sb.AppendLine("return;");
+        sb.CloseBrace();
+        sb.AppendLine();
+
+        sb.AppendLine("var discriminator = value switch");
+        sb.OpenBrace();
+        foreach (var refString in refs)
+        {
+            var typeName = registry.ResolveToCSharpType(refString, currentNsid);
+            var discriminator = GetTypeDiscriminator(refString, currentNsid);
+            sb.AppendLine($"global::{typeName} => \"{discriminator}\",");
+        }
+        sb.AppendLine("_ => throw new global::System.NotSupportedException($\"Unsupported union runtime type '{value.GetType().FullName}'.\"),");
+        sb.CloseBrace(withSemicolon: true);
+        sb.AppendLine();
+
+        sb.AppendLine("var element = global::System.Text.Json.JsonSerializer.SerializeToElement(value, options.GetTypeInfo(value.GetType()));");
+        sb.AppendLine("if (element.ValueKind != global::System.Text.Json.JsonValueKind.Object)");
+        sb.OpenBrace();
+        sb.AppendLine("element.WriteTo(writer);");
+        sb.AppendLine("return;");
+        sb.CloseBrace();
+        sb.AppendLine();
+
+        sb.AppendLine("writer.WriteStartObject();");
+        sb.AppendLine("writer.WriteString(\"$type\", discriminator);");
+        sb.AppendLine("foreach (var prop in element.EnumerateObject())");
+        sb.OpenBrace();
+        sb.AppendLine("if (prop.NameEquals(\"$type\"))");
+        sb.OpenBrace();
+        sb.AppendLine("continue;");
+        sb.CloseBrace();
+        sb.AppendLine("prop.WriteTo(writer);");
+        sb.CloseBrace();
+        sb.AppendLine("writer.WriteEndObject();");
+        sb.CloseBrace();
+
+        sb.CloseBrace();
     }
 }
