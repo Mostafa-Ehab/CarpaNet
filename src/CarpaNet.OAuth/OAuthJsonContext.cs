@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using CarpaNet.OAuth.Crypto;
+using CarpaNet.OAuth.Storage;
 
 namespace CarpaNet.OAuth;
 
@@ -18,6 +19,8 @@ namespace CarpaNet.OAuth;
 [JsonSerializable(typeof(DPoPProofPayload))]
 [JsonSerializable(typeof(JwtHeader))]
 [JsonSerializable(typeof(ClientAssertionPayload))]
+[JsonSerializable(typeof(TokenSet))]
+[JsonSerializable(typeof(OAuthSessionData))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

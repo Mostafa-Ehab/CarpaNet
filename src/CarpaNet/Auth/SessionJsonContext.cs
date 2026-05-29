@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CarpaNet.Storage;
 
 namespace CarpaNet.Auth;
 
@@ -11,6 +12,7 @@ namespace CarpaNet.Auth;
 [JsonSerializable(typeof(CreateSessionRequest))]
 [JsonSerializable(typeof(SessionResponse))]
 [JsonSerializable(typeof(GetSessionResponse))]
-internal partial class SessionJsonContext : JsonSerializerContext
+[JsonSerializable(typeof(SessionData))]
+public partial class SessionJsonContext : JsonSerializerContext
 {
 }
