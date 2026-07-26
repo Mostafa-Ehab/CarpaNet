@@ -81,7 +81,7 @@ public sealed class EventStreamClient : IDisposable
             {
                 if (frame.Header.IsError)
                 {
-                    _logger.LogWarning("Event stream error frame received");
+                    _logger.LogWarning("Event stream error: {Error} — {Message}", frame.Header.Error, frame.Header.Message);
                     throw new EventStreamException(frame.Header);
                 }
 
@@ -262,7 +262,51 @@ public sealed class EventStreamClient : IDisposable
         var bytesRead = initialLength - reader.BytesRemaining;
         var payloadBytes = frameData.Slice(bytesRead);
 
+        // Some PDS implementations send error details in the payload body
+        // instead of the CBOR header. Extract them when the header is bare.
+        if (header.IsError && header.Error == null && header.Message == null && !payloadBytes.IsEmpty)
+        {
+            TryParseErrorFromPayload(header, payloadBytes);
+        }
+
         return new EventStreamFrame(header, payloadBytes);
+    }
+
+    private static void TryParseErrorFromPayload(EventStreamHeader header, ReadOnlyMemory<byte> payloadBytes)
+    {
+        try
+        {
+            var reader = new CborReader(payloadBytes, CborConformanceMode.Lax, allowMultipleRootLevelValues: true);
+
+            if (reader.PeekState() != CborReaderState.StartMap)
+                return;
+
+            var remaining = reader.ReadStartMap() ?? int.MaxValue;
+
+            while (remaining > 0 && reader.PeekState() != CborReaderState.EndMap)
+            {
+                var key = reader.ReadTextString();
+
+                switch (key)
+                {
+                    case "error":
+                        header.Error = reader.ReadTextString();
+                        break;
+                    case "message":
+                        header.Message = reader.ReadTextString();
+                        break;
+                    default:
+                        reader.SkipValue();
+                        break;
+                }
+
+                remaining--;
+            }
+        }
+        catch
+        {
+            // Best-effort parse; if payload isn't an error map, ignore
+        }
     }
 
     private static EventStreamHeader ParseHeader(ref CborReader reader)
