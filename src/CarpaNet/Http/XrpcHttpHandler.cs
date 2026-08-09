@@ -224,6 +224,14 @@ public static class XrpcHttpHandler
             await ThrowForErrorResponseAsync(response, logger, cancellationToken).ConfigureAwait(false);
         }
 
+        // No-output endpoints are generated as object return type.
+        // Handle object responses without requiring JsonTypeInfo<object>.
+        if (typeof(TOutput) == typeof(object))
+        {
+            var objectResult = await ProcessObjectResponseAsync(response, cancellationToken).ConfigureAwait(false);
+            return (TOutput)objectResult;
+        }
+
         // Handle 204 No Content
         if (response.StatusCode == HttpStatusCode.NoContent)
         {
@@ -251,6 +259,41 @@ public static class XrpcHttpHandler
         }
 
         return result;
+    }
+
+    private static async Task<object> ProcessObjectResponseAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.Content == null)
+        {
+            return new object();
+        }
+
+#if NET8_0_OR_GREATER
+        var rawContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+#else
+        var rawContent = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+#endif
+
+        if (string.IsNullOrWhiteSpace(rawContent))
+        {
+            return new object();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawContent);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            throw new ATProtoException(
+                "Failed to deserialize response.",
+                ex,
+                errorCode: "DeserializationError",
+                statusCode: response.StatusCode);
+        }
     }
 
     /// <summary>

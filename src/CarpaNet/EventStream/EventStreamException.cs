@@ -39,10 +39,19 @@ public sealed class EventStreamException : Exception
     /// </summary>
     /// <param name="header">The error header.</param>
     public EventStreamException(EventStreamHeader header)
-        : base(header.Message ?? header.Error ?? "Unknown event stream error")
+        : base(FormatMessage(header))
     {
         Header = header;
         ErrorName = header.Error;
+    }
+
+    private static string FormatMessage(EventStreamHeader header)
+    {
+        if (!string.IsNullOrEmpty(header.Message))
+            return string.IsNullOrEmpty(header.Error) ? header.Message! : $"[{header.Error}] {header.Message}";
+        if (!string.IsNullOrEmpty(header.Error))
+            return header.Error!;
+        return $"Unknown event stream error (op={header.Op})";
     }
 
     /// <summary>

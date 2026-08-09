@@ -253,61 +253,12 @@ public static class JsonContextGenerator
         }
         else
         {
-            // Open unions: generate a custom converter that returns null for unknown $type values
-            GenerateOpenUnionConverter(sb, qualifiedTypeName, methodSuffix, refs, currentNsid, registry);
-
             sb.AppendLine($"private static global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<global::{qualifiedTypeName}> Create_{methodSuffix}_TypeInfo(global::System.Text.Json.JsonSerializerOptions options)");
             sb.OpenBrace();
-            sb.AppendLine($"return global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<global::{qualifiedTypeName}>(options, new Converter_{methodSuffix}());");
+            sb.AppendLine($"return global::System.Text.Json.Serialization.Metadata.JsonMetadataServices.CreateValueInfo<global::{qualifiedTypeName}>(options, new global::{qualifiedTypeName}JsonConverter());");
             sb.CloseBrace();
             sb.AppendLine();
         }
-    }
-
-    /// <summary>
-    /// Generates a JsonConverter class for an open union interface that gracefully handles unknown $type values.
-    /// </summary>
-    private static void GenerateOpenUnionConverter(
-        SourceBuilder sb,
-        string qualifiedTypeName,
-        string methodSuffix,
-        List<string> refs,
-        string currentNsid,
-        TypeRegistry registry)
-    {
-        sb.AppendLine($"private sealed class Converter_{methodSuffix} : global::System.Text.Json.Serialization.JsonConverter<global::{qualifiedTypeName}>");
-        sb.OpenBrace();
-
-        // Read method
-        sb.AppendLine($"public override global::{qualifiedTypeName}? Read(ref global::System.Text.Json.Utf8JsonReader reader, global::System.Type typeToConvert, global::System.Text.Json.JsonSerializerOptions options)");
-        sb.OpenBrace();
-        sb.AppendLine("var element = global::System.Text.Json.JsonElement.ParseValue(ref reader);");
-        sb.AppendLine("if (!element.TryGetProperty(\"$type\", out var typeProp))");
-        sb.AppendLine("    return null;");
-        sb.AppendLine("var typeStr = typeProp.GetString();");
-        sb.AppendLine("return typeStr switch");
-        sb.OpenBrace();
-
-        foreach (var refString in refs)
-        {
-            var typeName = registry.ResolveToCSharpType(refString, currentNsid);
-            var discriminator = GetTypeDiscriminator(refString, currentNsid, registry);
-            sb.AppendLine($"\"{discriminator}\" => (global::{qualifiedTypeName}?)global::System.Text.Json.JsonSerializer.Deserialize(element, options.GetTypeInfo(typeof(global::{typeName}))),");
-        }
-
-        sb.AppendLine("_ => null,");
-        sb.CloseBrace(withSemicolon: true);
-        sb.CloseBrace();
-        sb.AppendLine();
-
-        // Write method
-        sb.AppendLine($"public override void Write(global::System.Text.Json.Utf8JsonWriter writer, global::{qualifiedTypeName} value, global::System.Text.Json.JsonSerializerOptions options)");
-        sb.OpenBrace();
-        sb.AppendLine("global::System.Text.Json.JsonSerializer.Serialize(writer, value, options.GetTypeInfo(value.GetType()));");
-        sb.CloseBrace();
-
-        sb.CloseBrace();
-        sb.AppendLine();
     }
 
     /// <summary>

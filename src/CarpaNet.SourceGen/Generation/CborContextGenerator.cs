@@ -480,28 +480,28 @@ public static class CborContextGenerator
 
             case LexiconTypeKind.Object:
             case LexiconTypeKind.Record:
-            {
-                var typeName = registry.ResolveToCSharpType(refString, currentNsid);
-                typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
-                return CborTypeInfoRef(typeName);
-            }
+                {
+                    var typeName = registry.ResolveToCSharpType(refString, currentNsid);
+                    typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
+                    return CborTypeInfoRef(typeName);
+                }
 
             case LexiconTypeKind.Union:
-            {
-                var typeName = registry.ResolveToCSharpType(refString, currentNsid);
-                typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
-                return CborTypeInfoRef(typeName);
-            }
+                {
+                    var typeName = registry.ResolveToCSharpType(refString, currentNsid);
+                    typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
+                    return CborTypeInfoRef(typeName);
+                }
 
             case LexiconTypeKind.Array:
                 return GetConverterExpressionForArrayRef(refString, currentNsid, registry);
 
             default:
-            {
-                var typeName = registry.ResolveToCSharpType(refString, currentNsid);
-                typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
-                return CborTypeInfoRef(typeName);
-            }
+                {
+                    var typeName = registry.ResolveToCSharpType(refString, currentNsid);
+                    typeName = QualifyUnionNames(typeName, refString, currentNsid, registry);
+                    return CborTypeInfoRef(typeName);
+                }
         }
     }
 

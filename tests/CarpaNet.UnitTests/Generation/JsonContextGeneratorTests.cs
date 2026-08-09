@@ -1,4 +1,5 @@
 using CarpaNet.Generation;
+using CarpaNet.Models;
 
 using Xunit;
 
@@ -29,5 +30,40 @@ public class JsonContextGeneratorTests
         Assert.DoesNotContain("<", result);
         Assert.DoesNotContain(">", result);
         Assert.Equal("System_Collections_Generic_List_string_", result);
+    }
+
+    [Fact]
+    public void GenerateJsonUnionTypeInfo_OpenUnion_UsesDirectInterfaceConverterInstantiation()
+    {
+        var registry = new TypeRegistry();
+        var nsid = "com.atproto.temp.checkHandleAvailability";
+
+        var doc = new LexiconDocument
+        {
+            Id = nsid,
+            Defs = new Dictionary<string, LexiconDefinition>
+            {
+                ["resultAvailable"] = new LexiconDefinition { Type = "object", Properties = new() },
+                ["resultUnavailable"] = new LexiconDefinition { Type = "object", Properties = new() },
+            }
+        };
+        registry.RegisterDocument(doc);
+
+        var sb = new SourceBuilder();
+        JsonContextGenerator.GenerateJsonUnionTypeInfo(
+            sb,
+            "ComAtproto.Temp.ICheckHandleAvailabilityOutputResult",
+            "ComAtproto_Temp_ICheckHandleAvailabilityOutputResult",
+            new List<string> { "#resultAvailable", "#resultUnavailable" },
+            nsid,
+            registry,
+            new GeneratorOptions(),
+            isClosed: false);
+
+        var result = sb.ToString();
+
+        Assert.Contains("CreateValueInfo<global::ComAtproto.Temp.ICheckHandleAvailabilityOutputResult>(options, new global::ComAtproto.Temp.ICheckHandleAvailabilityOutputResultJsonConverter())", result);
+        Assert.DoesNotContain("private sealed class Converter_", result);
+        Assert.DoesNotContain("options.GetConverter(typeof(global::ComAtproto.Temp.ICheckHandleAvailabilityOutputResult))", result);
     }
 }
