@@ -232,13 +232,14 @@ public static class XrpcEndpointGenerator
         {
             var requiredProps = def.Parameters.Required ?? new List<string>();
 
-            foreach (var prop in def.Parameters.Properties)
+            foreach (var prop in def.Parameters.Properties.OrderBy(p => requiredProps.Contains(p.Key) ? 0 : 1))
             {
                 var isRequired = requiredProps.Contains(prop.Key);
                 var csharpType = ResolveParameterType(prop.Value, currentNsid, registry);
-                var isArray = prop.Value.Type == "array";
 
-                if (!isRequired && !isArray)
+                // Optional parameters get `= default`, so they must be nullable (CS8625).
+                // This includes arrays: optional List<T> emits as List<T>?.
+                if (!isRequired)
                 {
                     csharpType = MakeNullable(csharpType);
                 }
