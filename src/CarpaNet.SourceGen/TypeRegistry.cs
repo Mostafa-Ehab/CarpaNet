@@ -248,8 +248,9 @@ public sealed class TypeRegistry
                 _unresolvedRefs.Add(fullRef);
             }
 
-            // Unknown type - fall back to generating a type name
-            return NsidHelper.RefToFullTypeName(refString!, currentNsid, _rootNamespace);
+            // A dangling reference (the lexicon it names is missing or lacks the definition) is
+            // kept as raw JSON, like the "unknown" type, so the rest of the lexicon still compiles.
+            return "System.Text.Json.JsonElement";
         }
 
         // Map to C# type based on kind
@@ -265,7 +266,7 @@ public sealed class TypeRegistry
             LexiconTypeKind.Any => "System.Text.Json.JsonElement",
             LexiconTypeKind.Object => typeInfo.FullCSharpTypeName,
             LexiconTypeKind.Record => typeInfo.FullCSharpTypeName,
-            LexiconTypeKind.Union => $"I{typeInfo.CSharpTypeName}", // Unions become interfaces
+            LexiconTypeKind.Union => $"{typeInfo.CSharpNamespace}.I{typeInfo.CSharpTypeName}", // Unions become interfaces (qualified: the ref may cross namespaces)
             // For array types, resolve the item type
             LexiconTypeKind.Array => ResolveArrayType(typeInfo, currentNsid),
             // For ref types, recursively resolve
@@ -298,7 +299,8 @@ public sealed class TypeRegistry
                 _unresolvedRefs.Add(fullRef);
             }
 
-            return NsidHelper.RefToFullTypeName(refString!, currentNsid, _rootNamespace);
+            // A dangling reference is kept as raw JSON (see ResolveToCSharpType).
+            return "System.Text.Json.JsonElement";
         }
 
         return typeInfo.Kind switch
@@ -401,7 +403,7 @@ public sealed class TypeRegistry
         var itemType = items.Type switch
         {
             "ref" when items.Ref != null => ResolveToCSharpType(items.Ref, typeInfo.Nsid),
-            "union" when items.Refs != null => $"I{typeInfo.CSharpTypeName}", // Generate interface name for union items
+            "union" when items.Refs != null => $"{typeInfo.CSharpNamespace}.I{typeInfo.CSharpTypeName}", // Interface for union items, qualified because the array def may be referenced from another namespace
             "string" => MapStringType(items),
             "integer" => "long",
             "boolean" => "bool",
@@ -474,7 +476,33 @@ public sealed class TypeRegistry
     {
         var fullRef = ResolveLocalRef(refString, currentNsid);
         var typeInfo = Lookup(fullRef);
-        return typeInfo?.Kind ?? LexiconTypeKind.Unknown;
+        // A dangling reference is kept as raw JSON, so it serializes like the "unknown" type.
+        return typeInfo?.Kind ?? LexiconTypeKind.Any;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="refString"/> names a definition in the loaded lexicons.
+    /// A dangling reference is generated as raw JSON, and is left out of unions.
+    /// </summary>
+    public bool IsResolvable(string? refString, string currentNsid)
+    {
+        if (string.IsNullOrEmpty(refString))
+        {
+            return false;
+        }
+
+        var fullRef = ResolveLocalRef(refString!, currentNsid);
+        if (Lookup(fullRef) != null)
+        {
+            return true;
+        }
+
+        if (!refString!.StartsWith("#"))
+        {
+            _unresolvedRefs.Add(fullRef);
+        }
+
+        return false;
     }
 
     /// <summary>

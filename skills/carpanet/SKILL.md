@@ -92,8 +92,8 @@ This scans your lexicons for `ref` fields pointing to external NSIDs, resolves t
 |----------|---------|-------------|
 | `CarpaNet_JsonContextName` | `ATProtoJsonContext` | Name of the generated JSON serializer context |
 | `CarpaNet_CborContextName` | `ATProtoCborContext` | Name of the generated CBOR serializer context |
-| `CarpaNet_SourceGen_RootNamespace` | Project namespace | Root namespace for generated code |
-| `CarpaNet_SourceGen_EmitValidationAttributes` | `false` | Emit `[ATStringLength]`, `[Range]` attributes |
+| `CarpaNet_RootNamespace` | None (from NSID) | Root namespace prefix for generated code |
+| `CarpaNet_EmitValidationAttributes` | `true` | Emit `[ATStringLength]`, `[ATRange]` validation attributes |
 | `CarpaNet_LexiconAutoResolve` | `false` | Auto-resolve transitive lexicon dependencies |
 | `CarpaNet_LexiconAutoResolveMaxDepth` | `10` | Max iterations for transitive resolution |
 | `CarpaNet_LexiconCacheDir` | `obj/lexicon-cache/` | Cache directory for resolved lexicons |
@@ -101,6 +101,8 @@ This scans your lexicons for `ref` fields pointing to external NSIDs, resolves t
 | `CarpaNet_LexiconFailOnError` | `true` | Fail build on resolution errors |
 | `CarpaNet_PlcDirectoryUrl` | `https://plc.directory` | PLC directory URL |
 | `CarpaNet_DnsServers` | (empty) | Semicolon-separated DNS server IPs |
+
+The older `CarpaNet_SourceGen_RootNamespace`, `CarpaNet_SourceGen_JsonContextName`, `CarpaNet_SourceGen_CborContextName` and `CarpaNet_SourceGen_EmitValidationAttributes` names still work. If both names are set, the `CarpaNet_*` name wins.
 
 ### Inspecting Generated Code
 
@@ -287,7 +289,7 @@ using CarpaNet.OAuth;
 var port = 8080;
 var config = new OAuthClientConfig
 {
-    ClientId = OAuthClientConfig.CreateLoopbackClientId(port),
+    ClientId = OAuthClientConfig.CreateLoopbackClientId(port, "atproto transition:generic"), // http://localhost?scope=...&redirect_uri=...
     RedirectUri = OAuthClientConfig.CreateLoopbackRedirectUri(port),
     Scope = "atproto transition:generic",
     JsonOptions = ATProtoJsonContext.DefaultOptions,
@@ -391,7 +393,51 @@ public sealed class FileOAuthSessionStore : IOAuthSessionStore
 
 ## Jetstream (Real-Time Events)
 
-Jetstream provides a lightweight, JSON-based WebSocket event stream. Requires the `CarpaNet.Jetstream` package.
+Jetstream provides a lightweight, JSON-based WebSocket event stream. Requires the `CarpaNet.Jetstream` package. The package has two clients: `JetstreamV2Client` (current service: managed live tail + sealed-archive replay; prefer for new code) and `JetstreamClient` (legacy v1 `/subscribe` wire).
+
+### Jetstream v2 (preferred)
+
+```csharp
+using CarpaNet.Jetstream;
+
+using var client = new JetstreamV2Client(
+    new Uri(BlueskyServices.JetstreamUsEast),
+    new JetstreamV2ClientOptions { EnableCompression = true }); // dict-zstd, dictionary auto-fetched
+
+var options = new JetstreamV2SubscribeOptions
+{
+    Collections = new[] { "app.bsky.feed.post", "app.bsky.graph.*" }, // exact NSIDs or wildcards
+    Dids = new[] { "did:plc:z72i7hdynmk6r22z27h6tvur" },             // optional, max 10,000
+    // LiveCursor = lastSeq,  // resume a live tail from a saved seq (evt.Seq)
+    // AfterSeq = 0,          // or: replay the whole sealed archive, then cut over to live
+    // SnapshotOnly = true,   // or: archive dump only, no websocket
+};
+
+await foreach (var evt in client.SubscribeAsync(options))
+{
+    switch (evt.Kind)
+    {
+        case JetstreamV2EventKind.Commit when evt.Commit is { } commit:
+            Console.WriteLine($"[{commit.Operation}] seq={evt.Seq} {commit.Collection}/{commit.Rkey}");
+            // Typed record via your generated context:
+            // var post = commit.GetRecord(ATProtoJsonContext.Default.AppBskyFeedPost);
+            break;
+        case JetstreamV2EventKind.Identity when evt.Identity is { } identity:
+            Console.WriteLine($"[Identity] {evt.Did} → {identity.Handle}");
+            break;
+        case JetstreamV2EventKind.Account when evt.Account is { } account:
+            Console.WriteLine($"[Account] {evt.Did} active={account.Active} status={account.Status}");
+            break;
+        case JetstreamV2EventKind.Sync when evt.Sync is { } sync:
+            Console.WriteLine($"[Sync] {evt.Did} rev={sync.Rev}");
+            break;
+    }
+}
+```
+
+The managed stream reconnects with backoff, resumes at the last delivered seq, dedups the at-least-once overlap, and recovers from `CursorTooOld` by re-entering archive replay (backfill mode) — persist `evt.Seq` to resume across restarts. Collection filters never suppress `#identity`/`#account`/`#sync` (the account-deletion purge signal); v2 filters are immutable per connection (no `options_update`). Archive endpoints (`PlanSnapshotAsync`/`GetSegmentAsync`/`GetBlockAsync` + `JetstreamSegmentFormat`) are public; `JetstreamV2ClientOptions.ApiKey` authenticates them.
+
+### Jetstream v1 (legacy)
 
 ```csharp
 using CarpaNet.Jetstream;
@@ -432,12 +478,15 @@ await foreach (var evt in client.SubscribeAsync(options))
 }
 ```
 
-### Dynamic Filter Updates
+### Dynamic Filter Updates (v1 only)
 
 ```csharp
 await client.SendOptionsUpdateAsync(new JetstreamOptionsUpdate
 {
-    WantedCollections = new[] { "app.bsky.graph.follow" },
+    Payload = new JetstreamOptionsPayload
+    {
+        WantedCollections = new List<string> { "app.bsky.graph.follow" },
+    },
 });
 ```
 
@@ -499,6 +548,19 @@ var didDoc2 = await resolver.ResolveAsync("did:plc:z72i7hdynmk6r22z27h6tvur");
 ```
 
 The `ATProtoClient` creates an `IdentityResolver` automatically (configurable via `ATProtoClientOptions.CreateIdentityResolver`).
+
+Handle resolution tries DNS TXT, then HTTPS well-known, then the `com.atproto.identity.resolveHandle` XRPC method (only if a service URL is set). In browsers (WASM), use DNS-over-HTTPS and an XRPC service, because UDP is unavailable and well-known requests are usually blocked by CORS:
+
+```csharp
+var resolver = new IdentityResolver(httpClient, new IdentityResolverOptions
+{
+    Cache = new MemoryIdentityCache(),
+    DnsResolver = new DnsOverHttpsResolver(httpClient), // default in browsers via DnsResolverDefaults.CreateDefault
+    HandleResolutionServiceUrl = IdentityResolverOptions.PublicBlueskyAppViewUrl, // or the user's PDS
+});
+```
+
+A DID from the XRPC method is only as trustworthy as the service. `ResolveAsync` still checks that the DID document claims the handle.
 
 ---
 
@@ -794,7 +856,7 @@ var (session, error) = await protocol.AuthenticateWithOAuth2CallbackResultAsync(
 // CarpaNet — OAuth is a separate OAuthSession class
 using var oauthSession = new OAuthSession(new OAuthClientConfig
 {
-    ClientId = OAuthClientConfig.CreateLoopbackClientId(8080),
+    ClientId = OAuthClientConfig.CreateLoopbackClientId(8080, "atproto transition:generic"),
     RedirectUri = OAuthClientConfig.CreateLoopbackRedirectUri(8080),
     Scope = "atproto transition:generic",
     JsonOptions = ATProtoJsonContext.DefaultOptions,
