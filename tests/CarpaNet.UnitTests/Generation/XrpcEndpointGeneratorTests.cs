@@ -138,6 +138,18 @@ public class XrpcEndpointGeneratorTests
     }
 
     [Fact]
+    public void OptionalArrayQueryParameter_EmitsNullableListWithDefault()
+    {
+        var (byNamespace, registry) = CreateQueryWithOptionalArrayParameter();
+        var options = new GeneratorOptions { EmitXrpcEndpoints = true };
+
+        var result = XrpcEndpointGenerator.Generate(byNamespace, registry, options);
+
+        Assert.Contains("System.Collections.Generic.List<string>? tag = default", result);
+        Assert.DoesNotContain("List<string> tag = default", result);
+    }
+
+    [Fact]
     public void GetControllerGroup_ReturnsFirstThreeSegments()
     {
         Assert.Equal("app.bsky.actor", XrpcEndpointGenerator.GetControllerGroup("app.bsky.actor.getProfile"));
@@ -573,6 +585,45 @@ public class XrpcEndpointGeneratorTests
                             }
                         },
                         RequiredRaw = CreateJsonArray("actors"),
+                    },
+                    Output = new LexiconIO
+                    {
+                        Encoding = "application/json",
+                        Schema = new LexiconDefinition { Type = "object", Properties = new() }
+                    }
+                }
+            }
+        };
+
+        registry.RegisterDocument(doc);
+        var byNamespace = GroupByNamespace(doc, registry);
+        return (byNamespace, registry);
+    }
+
+    private static (Dictionary<string, List<(string Nsid, LexiconDocument Doc)>>, TypeRegistry) CreateQueryWithOptionalArrayParameter()
+    {
+        var registry = new TypeRegistry();
+        var doc = new LexiconDocument
+        {
+            Id = "app.bsky.feed.searchPosts",
+            Defs = new Dictionary<string, LexiconDefinition>
+            {
+                ["main"] = new LexiconDefinition
+                {
+                    Type = "query",
+                    Parameters = new LexiconDefinition
+                    {
+                        Type = "params",
+                        Properties = new Dictionary<string, LexiconDefinition>
+                        {
+                            ["q"] = new LexiconDefinition { Type = "string" },
+                            ["tag"] = new LexiconDefinition
+                            {
+                                Type = "array",
+                                Items = new LexiconDefinition { Type = "string" }
+                            }
+                        },
+                        RequiredRaw = CreateJsonArray("q"),
                     },
                     Output = new LexiconIO
                     {
