@@ -31,6 +31,12 @@ public sealed class EventStreamClient : IDisposable
     public int BufferSize { get; set; } = 1024 * 1024; // 1MB default
 
     /// <summary>
+    /// How long closing a subscription waits to send the close frame before aborting the connection.
+    /// The server's reply is not awaited, so a server that stops reading cannot hold the close open.
+    /// </summary>
+    public TimeSpan CloseTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Creates a new EventStreamClient with the default serializer context.
     /// </summary>
     /// <param name="baseUri">The base WebSocket URI (e.g., wss://bsky.network).</param>
@@ -120,18 +126,7 @@ public sealed class EventStreamClient : IDisposable
         }
         finally
         {
-            if (_webSocket.State == WebSocketState.Open)
-            {
-                try
-                {
-                    await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    // Ignore close errors
-                }
-            }
+            await CloseWebSocketAsync(_webSocket, cancellationToken).ConfigureAwait(false);
 
             _logger.LogDebug("WebSocket closed");
             _webSocket.Dispose();
@@ -168,18 +163,7 @@ public sealed class EventStreamClient : IDisposable
         }
         finally
         {
-            if (_webSocket.State == WebSocketState.Open)
-            {
-                try
-                {
-                    await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    // Ignore close errors
-                }
-            }
+            await CloseWebSocketAsync(_webSocket, cancellationToken).ConfigureAwait(false);
 
             _webSocket.Dispose();
             _webSocket = null;
@@ -394,6 +378,36 @@ public sealed class EventStreamClient : IDisposable
             throw new ObjectDisposedException(GetType().FullName);
         }
 #endif
+    }
+
+    /// <summary>
+    /// Sends the close frame without waiting for the server's reply, bounded by <see cref="CloseTimeout"/>, and aborts the
+    /// connection if that fails, times out or the caller has already cancelled.
+    /// </summary>
+    private async Task CloseWebSocketAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+    {
+        if (socket.State != WebSocketState.Open && socket.State != WebSocketState.CloseReceived)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            socket.Abort();
+            return;
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(CloseTimeout);
+        try
+        {
+            await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Closing", cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Closing the WebSocket failed or timed out; aborting it");
+            socket.Abort();
+        }
     }
 
     /// <summary>
