@@ -102,6 +102,46 @@ public class XrpcEndpointGeneratorTests
     }
 
     [Fact]
+    public void VirtualXrpcDefaults_False_EmitsAbstractMethods()
+    {
+        var (byNamespace, registry) = CreateProcedureWithInputAndOutput();
+        var options = new GeneratorOptions { EmitXrpcEndpoints = true };
+
+        var result = XrpcEndpointGenerator.Generate(byNamespace, registry, options);
+
+        Assert.Contains("public abstract System.Threading.Tasks.Task<", result);
+        Assert.DoesNotContain("virtual", result);
+        Assert.DoesNotContain("NotImplemented", result);
+    }
+
+    [Fact]
+    public void VirtualXrpcDefaults_True_EmitsVirtualMethodsThatAnswer501()
+    {
+        var (byNamespace, registry) = CreateProcedureWithInputAndOutput();
+        var options = new GeneratorOptions { EmitXrpcEndpoints = true, VirtualXrpcDefaults = true };
+
+        var result = XrpcEndpointGenerator.Generate(byNamespace, registry, options);
+
+        Assert.Contains("public virtual System.Threading.Tasks.Task<", result);
+        Assert.DoesNotContain("abstract System.Threading.Tasks.Task", result);
+        Assert.Contains("CarpaNet.AspNetCore.ATErrorResult.NotImplemented()", result);
+        Assert.Contains("[Microsoft.AspNetCore.Mvc.HttpPost(\"/xrpc/com.atproto.repo.createRecord\")]", result);
+    }
+
+    [Fact]
+    public void VirtualXrpcDefaults_True_QueryMethodAlsoGetsADefaultBody()
+    {
+        var (byNamespace, registry) = CreateQueryWithParameters();
+        var options = new GeneratorOptions { EmitXrpcEndpoints = true, VirtualXrpcDefaults = true };
+
+        var result = XrpcEndpointGenerator.Generate(byNamespace, registry, options);
+
+        Assert.Contains("public virtual System.Threading.Tasks.Task<", result);
+        Assert.Contains("GetProfileAsync(", result);
+        Assert.Contains("CarpaNet.AspNetCore.ATErrorResult.NotImplemented()", result);
+    }
+
+    [Fact]
     public void EmitXrpcEndpoints_False_GeneratesNothing()
     {
         var (byNamespace, registry) = CreateQueryWithParameters();

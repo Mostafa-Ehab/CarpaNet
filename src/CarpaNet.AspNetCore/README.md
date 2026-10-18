@@ -133,3 +133,4 @@ Available factory methods:
 | Property | Description | Default |
 |---|---|---|
 | `CarpaNet_EmitXrpcEndpoints` | Enable XRPC controller generation | `false` |
+| `CarpaNet_VirtualXrpcDefaults` | Generate controller methods as `virtual` with a default `501 NotImplemented` answer instead of `abstract`, so a controller overrides only the methods it serves | `false` |

@@ -162,12 +162,12 @@ public static class XrpcEndpointGenerator
         sb.WriteAttribute($"Microsoft.AspNetCore.Mvc.HttpGet(\"/xrpc/{endpoint.Nsid}\")");
         sb.Append("");
         sb.AppendIndent();
-        sb.Append($"public abstract System.Threading.Tasks.Task<{returnType}> {methodName}(");
+        sb.Append($"public {Modifier(options)} System.Threading.Tasks.Task<{returnType}> {methodName}(");
 
         var parameters = BuildQueryParameters(def, endpoint.Nsid, registry);
         WriteParameterList(sb, parameters);
 
-        sb.Append(");\n");
+        WriteMethodEnd(sb, returnType, options);
     }
 
     /// <summary>
@@ -189,7 +189,7 @@ public static class XrpcEndpointGenerator
         sb.WriteAttribute($"Microsoft.AspNetCore.Mvc.HttpPost(\"/xrpc/{endpoint.Nsid}\")");
         sb.Append("");
         sb.AppendIndent();
-        sb.Append($"public abstract System.Threading.Tasks.Task<{returnType}> {methodName}(");
+        sb.Append($"public {Modifier(options)} System.Threading.Tasks.Task<{returnType}> {methodName}(");
 
         var parameters = new List<ParameterDef>();
 
@@ -215,7 +215,22 @@ public static class XrpcEndpointGenerator
 
         WriteParameterList(sb, parameters);
 
-        sb.Append(");\n");
+        WriteMethodEnd(sb, returnType, options);
+    }
+
+    private static string Modifier(GeneratorOptions options) => options.VirtualXrpcDefaults ? "virtual" : "abstract";
+
+    // Abstract methods end at the signature; virtual ones carry a default body that answers 501 NotImplemented for an endpoint a server does not serve.
+    private static void WriteMethodEnd(SourceBuilder sb, string returnType, GeneratorOptions options)
+    {
+        if (!options.VirtualXrpcDefaults)
+        {
+            sb.Append(");\n");
+            return;
+        }
+
+        sb.Append(") =>\n");
+        sb.AppendLine($"    System.Threading.Tasks.Task.FromResult<{returnType}>(global::CarpaNet.AspNetCore.ATErrorResult.NotImplemented());");
     }
 
     /// <summary>

@@ -45,6 +45,12 @@ public sealed class GeneratorOptions
     /// Whether to emit XRPC server endpoint controllers. Default is false.
     /// </summary>
     public bool EmitXrpcEndpoints { get; set; } = false;
+
+    /// <summary>
+    /// Whether generated XRPC controller methods are virtual and answer 501 Not Implemented by default,
+    /// instead of abstract, so a controller only overrides the methods it serves. Default is false.
+    /// </summary>
+    public bool VirtualXrpcDefaults { get; set; } = false;
 }
 
 /// <summary>
@@ -111,6 +117,12 @@ public sealed class LexiconGenerator : IIncrementalGenerator
                 && bool.TryParse(emitXrpc, out var emitXrpcValue))
             {
                 options.EmitXrpcEndpoints = emitXrpcValue;
+            }
+
+            if (provider.GlobalOptions.TryGetValue("build_property.CarpaNet_VirtualXrpcDefaults", out var virtualDefaults)
+                && bool.TryParse(virtualDefaults, out var virtualDefaultsValue))
+            {
+                options.VirtualXrpcDefaults = virtualDefaultsValue;
             }
 
             return options;

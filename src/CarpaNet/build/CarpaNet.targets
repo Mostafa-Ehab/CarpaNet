@@ -34,6 +34,7 @@
     <CompilerVisibleProperty Include="CarpaNet_SourceGen_CborContextName" />
     <CompilerVisibleProperty Include="CarpaNet_SourceGen_JsonContextName" />
     <CompilerVisibleProperty Include="CarpaNet_EmitXrpcEndpoints" />
+    <CompilerVisibleProperty Include="CarpaNet_VirtualXrpcDefaults" />
   </ItemGroup>
 
   <ItemGroup>
