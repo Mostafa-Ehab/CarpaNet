@@ -194,8 +194,9 @@ public sealed class SessionTokenProvider : ITokenProvider, IDisposable
             return null;
         }
 
-        // Check if we need to refresh (with buffer before actual expiry)
-        if (DateTimeOffset.UtcNow >= _accessExpiry - _refreshBuffer)
+        // Check if we need to refresh (with buffer before actual expiry). The buffer is added to now, not taken from the expiry:
+        // an access token that is not a JWT has the expiry MinValue, and MinValue minus the buffer is out of range.
+        if (DateTimeOffset.UtcNow + _refreshBuffer >= _accessExpiry)
         {
             _logger.LogDebug("Access token expiring, triggering refresh");
             await RefreshAsync(cancellationToken).ConfigureAwait(false);
