@@ -147,6 +147,40 @@ public class SessionTokenProviderTests
     }
 
     [Fact]
+    public async Task GetAccessTokenAsync_WithNonJwtAccessToken_RefreshesInsteadOfThrowing()
+    {
+        var refreshed = 0;
+        var handler = new MockHttpMessageHandler((request, ct) =>
+        {
+            Assert.Contains("/xrpc/com.atproto.server.refreshSession", request.RequestUri!.ToString());
+            Assert.Equal("refresh-token", request.Headers.Authorization?.Parameter);
+            refreshed++;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $@"{{
+                        ""accessJwt"": ""{SampleJwt}"",
+                        ""refreshJwt"": ""refresh-token-2"",
+                        ""did"": ""did:plc:test"",
+                        ""handle"": ""alice.bsky.social""
+                    }}",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        using var provider = new SessionTokenProvider(httpClient);
+        provider.RestoreSession("opaque-access-token", "refresh-token", "did:plc:test", null, new Uri("https://pds.example.com"));
+
+        var token = await provider.GetAccessTokenAsync();
+
+        Assert.Equal(SampleJwt, token);
+        Assert.Equal(1, refreshed);
+    }
+
+    [Fact]
     public async Task LoginAsync_WithMockHandler_CreatesSession()
     {
         var handler = new MockHttpMessageHandler((request, ct) =>
